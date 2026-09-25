@@ -182,6 +182,25 @@ main()
         "created_at": now_iso(), "updated_at": now_iso(),
     })
 
+    add_problem({
+        "id": "p1009", "title": "找零问题", "difficulty": 4,
+        "description": "给定不同面额的硬币 coins（面额保证唯一且包含 1）和一个总金额 amount，"
+                       "编写算法计算凑成总金额所需的最少硬币数量。如果没有任何一种硬币组合能组成总金额，"
+                       "输出 -1。\n\n你可以认为每种硬币的数量是无限的（完全背包）。",
+        "input_description": "第一行两个整数 N 与 amount，分别为硬币种类数与目标金额（1 ≤ N ≤ 12，0 ≤ amount ≤ 10^4）。\n"
+                             "第二行 N 个互不相同的正整数，表示硬币面额。",
+        "output_description": "一个整数，凑出 amount 所需的最少硬币数；无法凑出时输出 -1。amount 为 0 时输出 0。",
+        "samples": [{"input": "3 11\n1 2 5", "output": "3"},
+                    {"input": "1 3\n2", "output": "-1"}],
+        "hint": "经典的贪心与动态规划结合题：部分面额体系下贪心即可得到最优解，但一般面额需要用动态规划"
+                "（完全背包）保证正确性。状态 dp[x] 表示凑出金额 x 的最少硬币数。",
+        "tags": ["贪心", "动态规划", "算法"],
+        "time_limit_ms": 1000, "memory_limit_kb": 65536,
+        "languages": ["python", "cpp", "c", "java"], "points": 100,
+        "comparison": {"mode": "exact", "ignore_whitespace": True},
+        "created_at": now_iso(), "updated_at": now_iso(),
+    })
+
     # 3) 测试用例
     cases = {
         "p1001": [
@@ -231,6 +250,13 @@ main()
             {"id": 3, "input": "a", "output": "a", "points": 25},
             {"id": 4, "input": "level", "output": "level", "points": 25},
         ],
+        "p1009": [
+            {"id": 1, "input": "3 11\n1 2 5", "output": "3", "points": 20},
+            {"id": 2, "input": "1 3\n2", "output": "-1", "points": 20},
+            {"id": 3, "input": "1 0\n1", "output": "0", "points": 20},
+            {"id": 4, "input": "4 27\n1 5 10 25", "output": "3", "points": 20},
+            {"id": 5, "input": "3 15\n2 5 8", "output": "3", "points": 20},
+        ],
     }
     for pid, cs in cases.items():
         atomic_write_json(os.path.join(config.TESTCASES_DIR, f"{pid}.json"),
@@ -254,6 +280,7 @@ main()
             {"problem_id": "p1006", "points": 100, "order": 6},
             {"problem_id": "p1007", "points": 100, "order": 7},
             {"problem_id": "p1008", "points": 100, "order": 8},
+            {"problem_id": "p1009", "points": 100, "order": 9},
         ],
         "visible": True,
         "created_at": now_iso(),

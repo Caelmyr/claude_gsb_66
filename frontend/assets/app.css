@@ -164,6 +164,21 @@ textarea { resize: vertical; }
   background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);
   margin-right: 4px; margin-bottom: 4px;
 }
+a.tag-link { cursor: pointer; transition: .15s; }
+a.tag-link:hover { background: var(--primary-50); color: var(--primary); border-color: var(--primary); }
+
+/* ---------- 题目列表：多标签 / 难度区间筛选 ---------- */
+.filter-group { display: flex; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+.filter-label { font-size: 13px; font-weight: 600; color: var(--text-muted); white-space: nowrap; padding-top: 7px; }
+.tag-picker { display: flex; flex-wrap: wrap; gap: 6px; max-width: 640px; }
+.chip {
+  padding: 5px 12px; border-radius: 20px; font-size: 13px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text-muted);
+  transition: .15s; font-family: inherit; line-height: 1.4;
+}
+.chip:hover { border-color: var(--primary); color: var(--primary); }
+.chip.active { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
+.chip.active::before { content: "✓ "; font-size: 11px; }
 .diff { font-weight: 700; }
 .diff-1 { color: var(--green); }
 .diff-2 { color: var(--cyan); }

@@ -10,6 +10,8 @@ from backend.utils import now_iso, gen_id, sort_list
 
 problems_bp = Blueprint("problems", __name__)
 
+DIFFICULTY_MIN, DIFFICULTY_MAX = 1, 5
+
 
 def _testcases_path(problem_id):
     return os.path.join(config.TESTCASES_DIR, f"{problem_id}.json")
@@ -18,6 +20,43 @@ def _testcases_path(problem_id):
 def load_testcases(problem_id):
     data = read_json(_testcases_path(problem_id))
     return (data or {}).get("cases", []) if data else []
+
+
+def normalize_tags(raw):
+    """标签规范化：去除空白、丢弃空值并去重，保持原始顺序。"""
+    if not isinstance(raw, list):
+        return []
+    result = []
+    seen = set()
+    for t in raw:
+        name = str(t).strip()
+        if name and name not in seen:
+            seen.add(name)
+            result.append(name)
+    return result
+
+
+def _parse_tags_param():
+    """解析多标签筛选参数。
+
+    支持：重复的 tag 参数（?tag=贪心&tag=动态规划）、tags 逗号分隔，
+    以及二者混用。返回去重后的标签列表，题目必须同时命中全部标签。
+    """
+    tags = []
+    for value in request.args.getlist("tag") + request.args.getlist("tags"):
+        for part in str(value).split(","):
+            name = part.strip()
+            if name and name not in tags:
+                tags.append(name)
+    return tags
+
+
+def _parse_int_bound(name):
+    """解析整数边界参数；未提供返回 None，非法值抛出 ValueError。"""
+    raw = request.args.get(name)
+    if raw is None or str(raw).strip() == "":
+        return None
+    return int(str(raw).strip())
 
 
 def _problem_summary(p, include_samples=True):
@@ -33,24 +72,41 @@ def _problem_summary(p, include_samples=True):
 @problems_bp.get("/problems")
 def list_problems():
     keyword = (request.args.get("q") or "").strip().lower()
-    tag = request.args.get("tag")
-    difficulty = request.args.get("difficulty")
+    tags = _parse_tags_param()
+    # 难度区间：min_difficulty/max_difficulty；旧的 difficulty 仍表示精确匹配某一档
+    try:
+        diff_min = _parse_int_bound("min_difficulty")
+        diff_max = _parse_int_bound("max_difficulty")
+        exact_diff = _parse_int_bound("difficulty")
+    except ValueError:
+        return err("难度参数必须是 1-5 的整数", 400)
+    # 区间非法（下界大于上界）时严格返回空结果，不放宽任何条件
+    range_inverted = (
+        diff_min is not None and diff_max is not None and diff_min > diff_max
+    )
     problems = []
-    for pid in list_files(config.PROBLEMS_DIR):
-        p = read_json(os.path.join(config.PROBLEMS_DIR, f"{pid}.json"))
-        if not p:
-            continue
-        if keyword and keyword not in (p.get("title", "") + " " + p.get("description", "")).lower():
-            continue
-        if tag and tag not in p.get("tags", []):
-            continue
-        if difficulty:
+    if not range_inverted:
+        for pid in list_files(config.PROBLEMS_DIR):
+            p = read_json(os.path.join(config.PROBLEMS_DIR, f"{pid}.json"))
+            if not p:
+                continue
+            if keyword and keyword not in (p.get("title", "") + " " + p.get("description", "")).lower():
+                continue
+            # 多标签为 AND：题目需同时包含全部所选标签
+            problem_tags = p.get("tags", [])
+            if tags and not all(t in problem_tags for t in tags):
+                continue
             try:
-                if int(p.get("difficulty", 0)) != int(difficulty):
-                    continue
+                difficulty = int(p.get("difficulty", 0))
             except (TypeError, ValueError):
-                pass
-        problems.append(_problem_summary(p, include_samples=False))
+                difficulty = 0
+            if exact_diff is not None and difficulty != exact_diff:
+                continue
+            if diff_min is not None and difficulty < diff_min:
+                continue
+            if diff_max is not None and difficulty > diff_max:
+                continue
+            problems.append(_problem_summary(p, include_samples=False))
     problems = sort_list(problems, key=lambda p: p.get("id", ""), reverse=False)
     return ok({"total": len(problems), "items": problems})
 
@@ -89,7 +145,7 @@ def create_problem():
         "output_description": data.get("output_description", ""),
         "samples": data.get("samples", []),
         "hint": data.get("hint", ""),
-        "tags": data.get("tags", []),
+        "tags": normalize_tags(data.get("tags", [])),
         "difficulty": int(data.get("difficulty", 1)),
         "time_limit_ms": int(data.get("time_limit_ms", 1000)),
         "memory_limit_kb": int(data.get("memory_limit_kb", 65536)),
@@ -136,9 +192,11 @@ def update_problem(problem_id):
         return err("题目不存在", 404)
     data = request.get_json(silent=True) or {}
     for key in ("title", "description", "input_description", "output_description",
-                "hint", "tags", "samples", "languages", "comparison"):
+                "hint", "samples", "languages", "comparison"):
         if key in data:
             p[key] = data[key]
+    if "tags" in data:
+        p["tags"] = normalize_tags(data["tags"])
     for key in ("difficulty", "time_limit_ms", "memory_limit_kb", "points"):
         if key in data:
             try:

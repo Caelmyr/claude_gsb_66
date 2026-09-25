@@ -23,16 +23,32 @@
 
     <div class="card">
       <div class="toolbar">
-        <input type="text" id="q" placeholder="搜索题目标题 / 描述..." style="max-width:280px" onkeydown="if(event.key==='Enter')loadProblems()">
-        <select id="tagFilter" style="width:auto" onchange="loadProblems()"><option value="">全部标签</option></select>
-        <select id="diffFilter" style="width:auto" onchange="loadProblems()">
-          <option value="">全部难度</option>
-          <option value="1">入门</option>
-          <option value="2">简单</option>
-          <option value="3">中等</option>
-          <option value="4">较难</option>
-          <option value="5">困难</option>
-        </select>
+        <input type="text" id="q" placeholder="搜索题目标题 / 描述..." style="max-width:280px" onkeydown="if(event.key==='Enter')onFilterChange()">
+        <div class="filter-group">
+          <span class="filter-label">知识点（多选，需同时命中）：</span>
+          <div id="tagFilter" class="tag-picker"><span class="muted">标签加载中…</span></div>
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">难度：</span>
+          <select id="diffMinFilter" style="width:auto" onchange="onDifficultyChange()">
+            <option value="">不限</option>
+            <option value="1">入门</option>
+            <option value="2">简单</option>
+            <option value="3">中等</option>
+            <option value="4">较难</option>
+            <option value="5">困难</option>
+          </select>
+          <span class="muted">至</span>
+          <select id="diffMaxFilter" style="width:auto" onchange="onDifficultyChange()">
+            <option value="">不限</option>
+            <option value="1">入门</option>
+            <option value="2">简单</option>
+            <option value="3">中等</option>
+            <option value="4">较难</option>
+            <option value="5">困难</option>
+          </select>
+        </div>
+        <button class="btn btn-outline btn-sm" id="clearFilterBtn" onclick="clearFilters()">✕ 清空筛选</button>
       </div>
       <div class="table-wrap">
         <table>
@@ -74,29 +90,141 @@
   <script>
     OJ.boot("index");
 
+    const DIFF_NAMES = ["", "入门", "简单", "中等", "较难", "困难"];
+    let allTags = [];
+    let selectedTags = new Set();
+
+    function renderTagPicker() {
+      const box = OJ.el("tagFilter");
+      if (!allTags.length) {
+        box.innerHTML = '<span class="muted">暂无可用标签</span>';
+        return;
+      }
+      box.innerHTML = allTags.map(t => {
+        const active = selectedTags.has(t);
+        return `<button type="button" class="chip${active ? " active" : ""}" data-tag="${OJ.esc(t)}"
+          onclick="toggleTag(this)">${OJ.esc(t)}</button>`;
+      }).join("");
+    }
+
     async function loadTags() {
       try {
-        const tags = await OJ.api("/problems/tags");
-        const sel = OJ.el("tagFilter");
-        tags.forEach(t => { const o = document.createElement("option"); o.value = t; o.textContent = t; sel.appendChild(o); });
-      } catch (e) {}
+        allTags = await OJ.api("/problems/tags");
+      } catch (e) {
+        allTags = [];
+      }
+      // 丢弃 URL 中已不存在的标签
+      selectedTags = new Set([...selectedTags].filter(t => allTags.includes(t)));
+      renderTagPicker();
+    }
+
+    function toggleTag(btn) {
+      const t = btn.dataset.tag;
+      if (selectedTags.has(t)) selectedTags.delete(t);
+      else selectedTags.add(t);
+      btn.classList.toggle("active");
+      onFilterChange();
+    }
+
+    function onDifficultyChange() {
+      // 保证区间合法：min <= max，用户先选了下界后，上界不能低于它（反之亦然）
+      const minSel = OJ.el("diffMinFilter");
+      const maxSel = OJ.el("diffMaxFilter");
+      const lo = parseInt(minSel.value, 10);
+      const hi = parseInt(maxSel.value, 10);
+      if (!isNaN(lo) && !isNaN(hi)) {
+        if (lo > hi) {
+          if (document.activeElement === minSel) maxSel.value = String(lo);
+          else minSel.value = String(hi);
+        }
+      }
+      onFilterChange();
+    }
+
+    function hasActiveFilter() {
+      return !!(OJ.el("q").value.trim() || selectedTags.size
+        || OJ.el("diffMinFilter").value || OJ.el("diffMaxFilter").value);
+    }
+
+    // 筛选条件同步到 URL，便于刷新 / 分享 / 从详情页回跳
+    function syncUrl() {
+      const params = new URLSearchParams();
+      const q = OJ.el("q").value.trim();
+      if (q) params.set("q", q);
+      if (selectedTags.size) params.set("tags", [...selectedTags].join(","));
+      const lo = OJ.el("diffMinFilter").value;
+      const hi = OJ.el("diffMaxFilter").value;
+      if (lo) params.set("min_difficulty", lo);
+      if (hi) params.set("max_difficulty", hi);
+      const qs = params.toString();
+      history.replaceState(null, "", qs ? "?" + qs : location.pathname);
+      OJ.el("clearFilterBtn").classList.toggle("hidden", !hasActiveFilter());
+    }
+
+    function applyUrlToControls() {
+      const params = new URLSearchParams(location.search);
+      OJ.el("q").value = params.get("q") || "";
+      selectedTags = new Set((params.get("tags") || "").split(",").map(s => s.trim()).filter(Boolean));
+      OJ.el("diffMinFilter").value = params.get("min_difficulty") || "";
+      OJ.el("diffMaxFilter").value = params.get("max_difficulty") || "";
+    }
+
+    let filterTimer = null;
+    function onFilterChange() {
+      syncUrl();
+      clearTimeout(filterTimer);
+      filterTimer = setTimeout(loadProblems, 80);
+    }
+
+    function clearFilters() {
+      OJ.el("q").value = "";
+      selectedTags.clear();
+      OJ.el("diffMinFilter").value = "";
+      OJ.el("diffMaxFilter").value = "";
+      document.querySelectorAll("#tagFilter .chip.active").forEach(c => c.classList.remove("active"));
+      syncUrl();
+      loadProblems();
+    }
+
+    function describeFilters() {
+      const parts = [];
+      if (selectedTags.size) parts.push("标签：" + [...selectedTags].join(" + "));
+      const lo = parseInt(OJ.el("diffMinFilter").value, 10);
+      const hi = parseInt(OJ.el("diffMaxFilter").value, 10);
+      if (!isNaN(lo) || !isNaN(hi)) {
+        parts.push("难度：" + (isNaN(lo) ? "入门" : DIFF_NAMES[lo]) + " ~ " + (isNaN(hi) ? "困难" : DIFF_NAMES[hi]));
+      }
+      if (OJ.el("q").value.trim()) parts.push("关键词：" + OJ.el("q").value.trim());
+      return parts;
     }
 
     async function loadProblems() {
       const q = OJ.el("q").value.trim();
-      const tag = OJ.el("tagFilter").value;
-      const diff = OJ.el("diffFilter").value;
+      const lo = OJ.el("diffMinFilter").value;
+      const hi = OJ.el("diffMaxFilter").value;
       const params = new URLSearchParams();
       if (q) params.set("q", q);
-      if (tag) params.set("tag", tag);
-      if (diff) params.set("difficulty", diff);
+      // 多标签 AND：每个标签单独一个 tag 参数，后端要求同时命中
+      selectedTags.forEach(t => params.append("tag", t));
+      if (lo) params.set("min_difficulty", lo);
+      if (hi) params.set("max_difficulty", hi);
       const tbody = OJ.el("problemList");
       const admin = OJ.isAdmin();
       OJ.el("newProblemBtn").classList.toggle("hidden", !admin);
       try {
         const data = await OJ.api("/problems?" + params.toString());
         if (!data.items.length) {
-          tbody.innerHTML = `<tr><td colspan="6" class="empty">暂无题目</td></tr>`;
+          const reasons = describeFilters();
+          tbody.innerHTML = reasons.length
+            ? `<tr><td colspan="6" class="empty">
+                 <div style="padding:12px 0">
+                   <div style="font-size:28px;margin-bottom:6px">🔍</div>
+                   没有符合条件的题目（${reasons.map(OJ.esc).join("；")}）
+                   <div class="hint" style="margin-top:8px">结果严格匹配所选条件，试试减少标签或放宽难度范围</div>
+                   <button class="btn btn-outline btn-sm" style="margin-top:10px" onclick="clearFilters()">清空筛选条件</button>
+                 </div>
+               </td></tr>`
+            : `<tr><td colspan="6" class="empty">暂无题目</td></tr>`;
           return;
         }
         tbody.innerHTML = data.items.map(p => `
@@ -247,9 +375,11 @@
       } catch (e) { OJ.toast(e.message, "error"); }
     }
 
-    // 初始化
-    loadTags();
+    // 初始化：先从 URL 恢复筛选条件，再加载标签与题目
+    applyUrlToControls();
+    loadTags().then(() => renderTagPicker());
     loadProblems();
+    syncUrl();
     if (new URLSearchParams(location.search).get("login") === "1" && !OJ.currentUser()) {
       showAuth(true);
     }
