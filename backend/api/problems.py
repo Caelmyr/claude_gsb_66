@@ -30,11 +30,42 @@ def _problem_summary(p, include_samples=True):
     return out
 
 
+def _parse_int(value):
+    """解析整数参数，失败返回 None。"""
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_tags_param():
+    """解析多标签筛选参数。
+
+    支持 `?tags=a,b`（逗号分隔）与重复的 `?tag=a&tag=b` 两种形式，
+    去重并保持出现顺序。多个标签之间为「同时满足（AND）」关系。
+    """
+    tags = []
+    raw = request.args.getlist("tag") + request.args.getlist("tags")
+    for chunk in raw:
+        for name in str(chunk).split(","):
+            name = name.strip()
+            if name and name not in tags:
+                tags.append(name)
+    return tags
+
+
 @problems_bp.get("/problems")
 def list_problems():
     keyword = (request.args.get("q") or "").strip().lower()
-    tag = request.args.get("tag")
-    difficulty = request.args.get("difficulty")
+    tags = _parse_tags_param()
+    diff_min = _parse_int(request.args.get("difficulty_min"))
+    diff_max = _parse_int(request.args.get("difficulty_max"))
+    # 兼容旧版单值难度参数：等值筛选等价于 [d, d] 区间
+    legacy_diff = _parse_int(request.args.get("difficulty"))
+    if legacy_diff is not None:
+        diff_min = diff_max = legacy_diff
+    if diff_min is not None and diff_max is not None and diff_min > diff_max:
+        diff_min, diff_max = diff_max, diff_min
     problems = []
     for pid in list_files(config.PROBLEMS_DIR):
         p = read_json(os.path.join(config.PROBLEMS_DIR, f"{pid}.json"))
@@ -42,14 +73,19 @@ def list_problems():
             continue
         if keyword and keyword not in (p.get("title", "") + " " + p.get("description", "")).lower():
             continue
-        if tag and tag not in p.get("tags", []):
+        # 多标签：必须同时包含所有选中标签才算命中
+        problem_tags = p.get("tags") or []
+        if tags and not all(t in problem_tags for t in tags):
             continue
-        if difficulty:
-            try:
-                if int(p.get("difficulty", 0)) != int(difficulty):
-                    continue
-            except (TypeError, ValueError):
-                pass
+        # 难度区间：闭区间 [diff_min, diff_max]，只给一端则只卡该端
+        if diff_min is not None or diff_max is not None:
+            d = _parse_int(p.get("difficulty"))
+            if d is None:
+                continue
+            if diff_min is not None and d < diff_min:
+                continue
+            if diff_max is not None and d > diff_max:
+                continue
         problems.append(_problem_summary(p, include_samples=False))
     problems = sort_list(problems, key=lambda p: p.get("id", ""), reverse=False)
     return ok({"total": len(problems), "items": problems})

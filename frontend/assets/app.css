@@ -164,6 +164,20 @@ textarea { resize: vertical; }
   background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);
   margin-right: 4px; margin-bottom: 4px;
 }
+.tag-clickable { cursor: pointer; transition: .15s; }
+.tag-clickable:hover { border-color: var(--primary); color: var(--primary); }
+
+/* ---------- 多标签 + 难度区间筛选 ---------- */
+.filter-tags-row { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.filter-tags-row .filter-label { font-size: 13px; color: var(--text-muted); font-weight: 600; padding-top: 5px; white-space: nowrap; }
+.filter-tags { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+.tag-chip {
+  display: inline-block; padding: 4px 13px; border-radius: 20px; font-size: 12.5px;
+  background: var(--surface); color: var(--text-muted); border: 1px solid var(--border);
+  cursor: pointer; user-select: none; transition: .15s;
+}
+.tag-chip:hover { border-color: var(--primary); color: var(--primary); }
+.tag-chip.active { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
 .diff { font-weight: 700; }
 .diff-1 { color: var(--green); }
 .diff-2 { color: var(--cyan); }

@@ -24,15 +24,29 @@
     <div class="card">
       <div class="toolbar">
         <input type="text" id="q" placeholder="搜索题目标题 / 描述..." style="max-width:280px" onkeydown="if(event.key==='Enter')loadProblems()">
-        <select id="tagFilter" style="width:auto" onchange="loadProblems()"><option value="">全部标签</option></select>
-        <select id="diffFilter" style="width:auto" onchange="loadProblems()">
-          <option value="">全部难度</option>
+        <select id="diffMin" style="width:auto" onchange="loadProblems()">
+          <option value="">最低难度</option>
           <option value="1">入门</option>
           <option value="2">简单</option>
           <option value="3">中等</option>
           <option value="4">较难</option>
           <option value="5">困难</option>
         </select>
+        <span class="muted">~</span>
+        <select id="diffMax" style="width:auto" onchange="loadProblems()">
+          <option value="">最高难度</option>
+          <option value="1">入门</option>
+          <option value="2">简单</option>
+          <option value="3">中等</option>
+          <option value="4">较难</option>
+          <option value="5">困难</option>
+        </select>
+        <button class="btn btn-outline btn-sm" onclick="clearFilters()">✕ 清空筛选</button>
+        <span class="muted ml-auto" id="resultCount"></span>
+      </div>
+      <div class="filter-tags-row">
+        <span class="filter-label">知识点标签（多选，需同时满足）：</span>
+        <div class="filter-tags" id="tagChips"></div>
       </div>
       <div class="table-wrap">
         <table>
@@ -74,36 +88,74 @@
   <script>
     OJ.boot("index");
 
+    // ---------- 筛选状态 ----------
+    const selectedTags = new Set();   // 已选中的知识点标签（多选，AND 关系）
+    let allTags = [];
+
     async function loadTags() {
       try {
-        const tags = await OJ.api("/problems/tags");
-        const sel = OJ.el("tagFilter");
-        tags.forEach(t => { const o = document.createElement("option"); o.value = t; o.textContent = t; sel.appendChild(o); });
+        allTags = await OJ.api("/problems/tags");
+        // 已选标签若已不存在（如题目被删），从选中集中剔除，避免隐形过滤
+        [...selectedTags].forEach(t => { if (!allTags.includes(t)) selectedTags.delete(t); });
+        renderTagChips();
       } catch (e) {}
+    }
+
+    function renderTagChips() {
+      const box = OJ.el("tagChips");
+      if (!allTags.length) { box.innerHTML = '<span class="muted">暂无标签</span>'; return; }
+      box.innerHTML = allTags.map(t =>
+        `<span class="tag-chip${selectedTags.has(t) ? " active" : ""}" data-tag="${OJ.esc(t)}">${OJ.esc(t)}</span>`
+      ).join("");
+    }
+
+    function toggleTag(t) {
+      if (selectedTags.has(t)) selectedTags.delete(t); else selectedTags.add(t);
+      renderTagChips();
+      loadProblems();
+    }
+
+    function hasActiveFilter() {
+      return !!(OJ.el("q").value.trim() || selectedTags.size ||
+                OJ.el("diffMin").value || OJ.el("diffMax").value);
+    }
+
+    function clearFilters() {
+      OJ.el("q").value = "";
+      OJ.el("diffMin").value = "";
+      OJ.el("diffMax").value = "";
+      selectedTags.clear();
+      renderTagChips();
+      loadProblems();
     }
 
     async function loadProblems() {
       const q = OJ.el("q").value.trim();
-      const tag = OJ.el("tagFilter").value;
-      const diff = OJ.el("diffFilter").value;
       const params = new URLSearchParams();
       if (q) params.set("q", q);
-      if (tag) params.set("tag", tag);
-      if (diff) params.set("difficulty", diff);
+      if (selectedTags.size) params.set("tags", [...selectedTags].join(","));
+      const diffMin = OJ.el("diffMin").value;
+      const diffMax = OJ.el("diffMax").value;
+      if (diffMin) params.set("difficulty_min", diffMin);
+      if (diffMax) params.set("difficulty_max", diffMax);
       const tbody = OJ.el("problemList");
       const admin = OJ.isAdmin();
       OJ.el("newProblemBtn").classList.toggle("hidden", !admin);
       try {
         const data = await OJ.api("/problems?" + params.toString());
+        OJ.el("resultCount").textContent = "共 " + data.total + " 道题";
         if (!data.items.length) {
-          tbody.innerHTML = `<tr><td colspan="6" class="empty">暂无题目</td></tr>`;
+          tbody.innerHTML = hasActiveFilter()
+            ? `<tr><td colspan="6" class="empty">没有符合筛选条件的题目<br>
+                 <button class="btn btn-outline btn-sm mt-8" onclick="clearFilters()">清空筛选条件</button></td></tr>`
+            : `<tr><td colspan="6" class="empty">暂无题目</td></tr>`;
           return;
         }
         tbody.innerHTML = data.items.map(p => `
           <tr>
             <td class="mono muted">${OJ.esc(p.id)}</td>
             <td><a href="/problem.html?id=${OJ.esc(p.id)}">${OJ.esc(p.title)}</a></td>
-            <td>${(p.tags || []).map(t => `<span class="tag">${OJ.esc(t)}</span>`).join("")}</td>
+            <td>${(p.tags || []).map(t => `<span class="tag tag-clickable" data-tag-toggle="${OJ.esc(t)}" title="点击按该标签筛选">${OJ.esc(t)}</span>`).join("")}</td>
             <td class="text-center">${OJ.difficultyLabel(p.difficulty)}</td>
             <td class="text-center muted">${p.submissions ? Math.round(p.accepted / p.submissions * 100) : 0}%</td>
             <td class="text-right">
@@ -116,6 +168,16 @@
         tbody.innerHTML = `<tr><td colspan="6" class="empty">${OJ.esc(e.message)}</td></tr>`;
       }
     }
+
+    // 标签筛选条与列表行内标签的点击委托（tbody 内容会重绘，事件挂在容器上）
+    OJ.el("tagChips").addEventListener("click", (e) => {
+      const chip = e.target.closest("[data-tag]");
+      if (chip) toggleTag(chip.dataset.tag);
+    });
+    OJ.el("problemList").addEventListener("click", (e) => {
+      const chip = e.target.closest("[data-tag-toggle]");
+      if (chip) toggleTag(chip.dataset.tagToggle);
+    });
 
     // ---------- 管理员：题目管理 ----------
     async function openProblemForm(id) {
@@ -247,7 +309,19 @@
       } catch (e) { OJ.toast(e.message, "error"); }
     }
 
-    // 初始化
+    // 初始化：先从 URL 恢复筛选状态（如详情页标签跳转 /index.html?tags=动态规划）
+    (function initFiltersFromURL() {
+      const u = new URLSearchParams(location.search);
+      if (u.get("q")) OJ.el("q").value = u.get("q");
+      const tagParam = u.get("tags") || u.get("tag");
+      if (tagParam) tagParam.split(",").map(s => s.trim()).filter(Boolean).forEach(t => selectedTags.add(t));
+      const dmin = u.get("difficulty_min"), dmax = u.get("difficulty_max");
+      if (dmin) OJ.el("diffMin").value = dmin;
+      if (dmax) OJ.el("diffMax").value = dmax;
+      // 兼容旧链接 ?difficulty=3（等值筛选）
+      const legacy = u.get("difficulty");
+      if (legacy && !dmin && !dmax) { OJ.el("diffMin").value = legacy; OJ.el("diffMax").value = legacy; }
+    })();
     loadTags();
     loadProblems();
     if (new URLSearchParams(location.search).get("login") === "1" && !OJ.currentUser()) {
